@@ -18,7 +18,7 @@ pip install -r requirements.txt
 
 > 上传洗衣机二维码图片至 `washerQrCode_Figs` 文件夹，图片名称即为洗衣机名称
 
-![image-20240620160640225](README.assets/image-20240620160640225.png)
+![image-20240620164037394](README.assets/image-20240620164037394.png)
 
 ### 运行代码
 
