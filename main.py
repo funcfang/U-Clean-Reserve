@@ -1,13 +1,27 @@
 import json
 import time
-
 import urllib3
-from playsound import playsound
-from win11toast import toast
-from threading import Thread
-from util import read_ini, write_ini_token, request_get, request_post
+
+from util import load_config, read_config, update_config, request_get, request_post, play_music_toast, decodeQrCode
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+def getWasherList():
+    import os
+    washerList = []
+    for root, _, Figs in os.walk('./washerQrCode_Figs'):
+        for fig in Figs:
+            # Join the root directory with the file name to get the full path
+            fig_path = os.path.join(root, fig)
+            qrcode = decodeQrCode(fig_path)
+            washerList.append({
+                'name': os.path.splitext(fig)[0],
+                'QrCode': qrcode,
+                'deviceId': ""
+            })
+    update_config('washerList', washerList)
+    return 'ok'
 
 
 def get_headers(type='reserve'):
@@ -40,7 +54,7 @@ def get_headers(type='reserve'):
             "Connection": "keep-alive",
             "x-mobile-model": "iPhone14,5"
         }
-    elif type == 'reserve':
+    else:
         headers = {
             "x-user-geo": "-180.000000,-180.000000",
             "Accept": "*/*",
@@ -55,7 +69,7 @@ def get_headers(type='reserve'):
             "Connection": "keep-alive",
             "x-mobile-model": "iPhone14,5",
         }
-        token = read_ini('token')
+        token = read_config('token')
         headers['Authorization'] = f'Bearer {token}'
     return headers
 
@@ -90,22 +104,60 @@ def login():
                 ValueError("登录失败!", res_json)
 
     print("登录成功!")
-
     token = res_json['data']['token']
-    write_ini_token(token_value=token)
+    update_config('token', token)
+    return 'ok'
 
 
-def play_music():
-    playsound('爱你.mp3')
+def checkWasherRunning(qrCode):
+    url = f"https://phoenix.ujing.online:443/api/v1/devices/scanWasherCode"
+    res = request_post(url, get_headers('reserve'), {'qrCode': qrCode})
+    res_decode = res.content.decode('utf-8')
+    res_json = json.loads(res_decode)
+    if res_json['code'] == 0:
+        deviceId = res_json['data']['result']['deviceId']
+        createOrderEnabled = res_json['data']['result']['createOrderEnabled']
+        return createOrderEnabled
+    elif res_json['code'] == 401:
+        print(f"token过期! 请重新登录.", res_json)
+        login()
+        return checkWasherRunning(qrCode)
+    else:
+        ValueError("获取设备信息失败", res_json)
 
 
-def play_music_toast():
-    t_music = Thread(target=play_music)
-    t_music.start()
+def getStoreId(deviceId):
+    url = f"/api/v1/app/washer/devices/program/info?deviceId={deviceId}"
+    res = request_get(url, get_headers('reserve'))
+    res_decode = res.content.decode('utf-8')
+    res_json = json.loads(res_decode)
+    if res_json['code'] == 0:
+        storeId = res_json['data']['storeId']
+        return storeId
+    else:
+        ValueError("获取设备详情失败", res_json)
 
-    toast("小脚本通知您", "已为您预约洗衣机成功！",
-          image='https://4.bp.blogspot.com/-u-uyq3FEqeY/UkJLl773BHI/AAAAAAAAYPQ/7bY05EeF1oI/s800/cooking_toaster.png',
-          duration='long')  # toast自带的音乐时长播放太短
+
+def startCheckWasherStatus(washerList, sleep=60):
+    times = 1
+    while True:
+        now_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+        print(f'第 {times} 次监听: {now_time}')
+        for washer in washerList:
+            washerName = washer['name']
+            qrcode = washer['QrCode']
+            createOrderEnabled = checkWasherRunning(qrcode)
+            if createOrderEnabled:
+                print(f"已检测到洗衣机{washerName}空闲中!")
+                play_music_toast(f"已检测到洗衣机{washerName}空闲中!")
+                return True
+            else:
+                print(f"洗衣机{washerName}正在运行中...")
+                continue
+        print(f'{sleep}s后重试.')
+        print('---------------')
+        time.sleep(sleep)
+        times += 1
 
 
 def getJSONData(washModel=2, storeId='', deviceTypeId=2, temperature=1, wp_detergentGearId=None,
@@ -142,40 +194,60 @@ def getJSONData(washModel=2, storeId='', deviceTypeId=2, temperature=1, wp_deter
     return data
 
 
-# 开始预定
-def start_reserve(dataList, sleep=90):
+def start_reserve(washModel, storeId, deviceList, sleep=90):
     url = "https://phoenix.ujing.online/api/v1/orders/create"
-
     times = 1
     while True:
         now_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
         print(f'第 {times} 次预约: {now_time}')
-        for index, data in enumerate(dataList):
+        for device in deviceList:
+            washerName = device['name']
+            data = getJSONData(washModel, storeId=storeId, deviceId=device['id'])
             res = request_post(url, get_headers('reserve'), data)
             res_decode = res.content.decode('utf-8')
             res_json = json.loads(res_decode)
             if res_json['code'] == 0:
-                print(f"预约 洗衣机{index + 1} 成功!")
-                play_music_toast()
-                return
+                print(f"预约 洗衣机{washerName} 成功!")
+                order_id = res_json['data']['orderId']
+                cancel_order(order_id)
+                return 200
             if res_json['code'] == 401:
-                print(f"预约 洗衣机{index + 1} 失败! token过期! 请重新登录.", res_json)
+                print(f"预约 洗衣机{washerName} 失败! token过期! 请重新登录.", res_json)
                 login()
                 continue
-            print(f'预约 洗衣机{index + 1} 失败!', res_json)
+            print(f'预约 洗衣机{washerName} 失败!', res_json)
         print(f'{sleep}s后重试.')
         print('---------------')
         time.sleep(sleep)
         times += 1
 
 
-if __name__ == '__main__':
-    print('清洗模式     "washModel":   1 - 普通洗,  2 - 小件洗,  3 - 超强洗,  4 - 单脱水')
-    washModel = int(input('washModel: '))
-    storeId = read_ini('storeId')  # 楼栋id
-    deviceId1 = read_ini('deviceId1')  # 设备id
-    deviceId2 = read_ini('deviceId2')
-    dataList = [getJSONData(washModel, storeId=storeId, deviceId=deviceId1),
-                getJSONData(washModel, storeId=storeId, deviceId=deviceId2)]
+def cancel_order(order_id):
+    url = f"https://phoenix.ujing.online/api/v1/orders/{order_id}/cancel"
+    res = request_post(url, get_headers('reserve'), {'orderId': order_id})
+    res_decode = res.content.decode('utf-8')
+    res_json = json.loads(res_decode)
+    if res_json['code'] == 0:
+        print('取消订单成功')
+        return 'ok'
+    else:
+        ValueError("取消订单失败", res_json)
 
-    start_reserve(dataList)
+
+if __name__ == '__main__':
+
+    washerList = read_config('washerList')  # 设备列表
+    if len(washerList) == 0:
+        getWasherList()
+        washerList = read_config('washerList')
+
+    token = read_config('token')
+    if token == "":
+        print("首次使用, 请先登录.")
+        login()
+
+    try:
+        startCheckWasherStatus(washerList, 60)
+    except Exception as e:
+        play_music_toast("监听脚本出错了")
+

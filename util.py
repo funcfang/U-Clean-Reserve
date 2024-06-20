@@ -1,6 +1,42 @@
 import configparser
 import requests
+import json
+from playsound import playsound
+from win11toast import toast
+from threading import Thread
 import os
+FILE_PATH = 'config.json'
+
+
+def load_config(file_path=FILE_PATH):
+    with open(file_path, 'r', encoding='utf-8') as config_file:
+        config = json.load(config_file)
+    return config
+
+
+def read_config(key):
+    config = load_config()
+    return config[key]
+
+
+def update_config(key, value):
+    config = load_config()
+    config[key] = value
+    with open(FILE_PATH, 'w', encoding='utf-8') as config_file:
+        json.dump(config, config_file)
+
+
+def send_bark(title='no title', message='no message'):
+    bark_url = read_config('bark_url')
+    if bark_url == '':
+        return
+
+    url = bark_url + f'{title}/{message}'
+    group = 'washer'
+    icon = 'https://oss.funcfang.cn/images/bark/washer.jpg'
+    response = requests.get(url, params={'group': group, 'icon': icon})
+    if response.status_code != 200:
+        print('bark请求失败:', response)
 
 
 def request_get(url, headers):
@@ -21,26 +57,21 @@ def request_post(url, headers, data):
         raise ValueError("远程强迫关闭!", e)
 
 
-def read_ini(option='token', file_path='./config.ini', section='Credentials'):
-    config = configparser.ConfigParser()
-    config.read(file_path)
-    value = config.get(section, option=option)
-    if value == "" and option != 'token':
-        raise ValueError("config值不能为空，请确认.")
-    return value
+def play_music():
+    playsound('./resources/爱你.mp3')
 
 
-def write_ini_token(file_path='./config.ini', section='Credentials', token_value='your_new_token_value'):
-    config = configparser.ConfigParser()
+def play_music_toast(content):
+    t_music = Thread(target=play_music)
+    t_music.start()
 
-    # 读取现有配置文件内容
-    config.read(file_path)
+    send_bark('洗衣机监听小脚本', content)
+    img_path = os.path.split(os.path.realpath(__file__))[0] + '\\resources\\washer.jpg'
+    toast("洗衣机监听小脚本", f"{content}", duration='long', image=img_path)  # toast自带的音乐时长播放太短
 
-    # 设置或创建指定部分（section）和键值对
-    if section not in config:
-        config.add_section(section)
-    config.set(section, 'token', token_value)
 
-    # 写入配置文件
-    with open(file_path, 'w') as config_file:
-        config.write(config_file)
+def decodeQrCode(img_path):
+    from pyzbar.pyzbar import decode
+    from PIL import Image
+    decocdeQR = decode(Image.open(img_path))
+    return decocdeQR[0].data.decode('ascii')
