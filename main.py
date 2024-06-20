@@ -12,6 +12,8 @@ def getWasherList():
     washerList = []
     for root, _, Figs in os.walk('./washerQrCode_Figs'):
         for fig in Figs:
+            if fig ==".gitkeep":
+                continue
             # Join the root directory with the file name to get the full path
             fig_path = os.path.join(root, fig)
             qrcode = decodeQrCode(fig_path)
