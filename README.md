@@ -30,11 +30,11 @@ python main.py
 
 ### Windows
 
-![image-20240620160946484](README.assets/image-20240620160946484.png)
+![image-20240620171129515](README.assets/image-20240620171129515.png)
 
 ### iPhone - Bark
 
-![image-20240620161020876](README.assets/image-20240620161020876.png)
+![image-20240620171207829](README.assets/image-20240620171207829.png)
 
 ## 运行中可能遇到的问题
 

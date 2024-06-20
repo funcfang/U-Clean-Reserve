@@ -12,7 +12,7 @@ def getWasherList():
     washerList = []
     for root, _, Figs in os.walk('./washerQrCode_Figs'):
         for fig in Figs:
-            if fig ==".gitkeep":
+            if fig == ".gitkeep":
                 continue
             # Join the root directory with the file name to get the full path
             fig_path = os.path.join(root, fig)
@@ -145,17 +145,19 @@ def startCheckWasherStatus(washerList, sleep=60):
     while True:
         now_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
         print(f'第 {times} 次监听: {now_time}')
+        freeWasherList = []
         for washer in washerList:
             washerName = washer['name']
             qrcode = washer['QrCode']
             createOrderEnabled = checkWasherRunning(qrcode)
             if createOrderEnabled:
                 print(f"已检测到洗衣机{washerName}空闲中!")
-                play_music_toast(f"已检测到洗衣机{washerName}空闲中!")
-                return True
+                freeWasherList.append(washerName)
             else:
                 print(f"洗衣机{washerName}正在运行中...")
-                continue
+        if len(freeWasherList) > 0:
+            play_music_toast(f"已检测到洗衣机{freeWasherList}空闲中!")
+            return True
         print(f'{sleep}s后重试.')
         print('---------------')
         time.sleep(sleep)
@@ -252,4 +254,3 @@ if __name__ == '__main__':
         startCheckWasherStatus(washerList, 60)
     except Exception as e:
         play_music_toast("监听脚本出错了")
-
